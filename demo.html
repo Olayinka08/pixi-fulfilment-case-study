@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Demo — Pixi Reconciliation</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #F7F6F2; --bg-2: #EEECEA; --surface: #FFFFFF; --border: #D8D4CE;
+  --fg: #1A1816; --fg-2: #5C5750; --fg-3: #8C877F;
+  --accent: #1A4B8C; --accent-light: #E8EEFA;
+  --ai: #6B3FA0; --ai-light: #F0EBFA;
+  --human: #1A7A4A; --human-light: #E8F5EE;
+  --warn: #B45309; --warn-light: #FEF3C7;
+  --danger: #C0392B; --danger-light: #FDEEEC;
+  --rule: #1D6FA8; --rule-light: #E8F4FB;
+  --teal: #0D7377; --teal-light: #E6F5F5;
+  --purple: #6B3FA0; --purple-light: #F0EBFA;
+  --green: #1A7A4A; --green-light: #E8F5EE;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121110; --bg-2: #1C1A18; --surface: #242220; --border: #3A3733;
+    --fg: #F0EDE8; --fg-2: #A89F94; --fg-3: #6B6460;
+    --accent: #4A85D4; --accent-light: #1A2A40;
+    --ai: #9B6DD4; --ai-light: #2A1A40;
+    --human: #2AA866; --human-light: #0E2A1E;
+    --warn: #D97706; --warn-light: #2A1E08;
+    --danger: #E05444; --danger-light: #2A1210;
+    --rule: #3B9FD4; --rule-light: #0E1E2A;
+    --teal: #14A3A8; --teal-light: #0A2020;
+    --purple: #9B6DD4; --purple-light: #2A1A40;
+    --green: #2AA866; --green-light: #0E2A1E;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121110; --bg-2: #1C1A18; --surface: #242220; --border: #3A3733;
+  --fg: #F0EDE8; --fg-2: #A89F94; --fg-3: #6B6460;
+  --accent: #4A85D4; --accent-light: #1A2A40;
+  --ai: #9B6DD4; --ai-light: #2A1A40;
+  --human: #2AA866; --human-light: #0E2A1E;
+  --warn: #D97706; --warn-light: #2A1E08;
+  --danger: #E05444; --danger-light: #2A1210;
+  --rule: #3B9FD4; --rule-light: #0E1E2A;
+  --teal: #14A3A8; --teal-light: #0A2020;
+  --purple: #9B6DD4; --purple-light: #2A1A40;
+  --green: #2AA866; --green-light: #0E2A1E;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0;
+}
+
+nav {
+  position: sticky; top: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 4px;
+  padding: 10px 0; z-index: 10; flex-wrap: wrap;
+}
+nav a {
+  text-decoration: none; color: var(--fg-2);
+  font-size: 12px; font-weight: 500;
+  padding: 5px 12px; border-radius: 4px;
+  transition: background 0.15s, color 0.15s; white-space: nowrap;
+}
+nav a:hover { background: var(--accent-light); color: var(--accent); }
+nav a.active { background: var(--accent-light); color: var(--accent); }
+nav .logo {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 15px; color: var(--fg);
+  padding: 5px 12px; margin-right: 8px; flex-shrink: 0;
+}
+
+.page { max-width: 900px; margin: 0 auto; padding-block: 40px; }
+
+h1 {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: clamp(22px, 4vw, 32px);
+  line-height: 1.2; text-wrap: balance;
+}
+h2 {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: clamp(17px, 3vw, 21px);
+  text-wrap: balance; margin-bottom: 16px;
+}
+h3 {
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--fg-3); margin-bottom: 10px;
+}
+p { color: var(--fg-2); line-height: 1.7; }
+
+.hero {
+  padding: 40px 0 32px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 40px;
+}
+.hero-meta {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.badge {
+  font-size: 11px; font-weight: 600;
+  padding: 3px 10px; border-radius: 100px;
+  text-transform: uppercase; letter-spacing: 0.07em;
+}
+.badge-ai { background: var(--ai-light); color: var(--ai); }
+.badge-python { background: var(--teal-light); color: var(--teal); }
+.hero p { margin-top: 12px; max-width: 620px; font-size: 15px; }
+
+/* Scenario selector */
+.scenario-tabs {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 28px;
+}
+.tab-btn {
+  padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--fg-2);
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: all 0.15s; font-family: inherit;
+}
+.tab-btn:hover { border-color: var(--accent); color: var(--accent); }
+.tab-btn.active {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+
+/* Pipeline panels */
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+@media (max-width: 620px) {
+  .pipeline { grid-template-columns: 1fr; }
+}
+.panel {
+  border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface); overflow: hidden;
+}
+.panel-header {
+  padding: 10px 16px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.09em;
+  display: flex; align-items: center; gap: 8px;
+}
+.panel-header .dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.panel-body {
+  padding: 16px;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px; line-height: 1.8;
+  color: var(--fg-2);
+}
+.panel-body .key { color: var(--fg-3); }
+.panel-body .val { color: var(--fg); font-weight: 500; }
+.panel-body .str { color: var(--human); }
+.panel-body .num { color: var(--accent); }
+.panel-body .comment { color: var(--fg-3); font-style: italic; }
+
+.panel-input .panel-header { background: var(--teal-light); color: var(--teal); }
+.panel-prompt .panel-header { background: var(--purple-light); color: var(--purple); }
+.panel-output .panel-header { background: var(--green-light); color: var(--green); }
+
+/* Arrow between panels */
+.pipe-arrow {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fg-3); font-size: 20px; padding-top: 44px;
+}
+@media (max-width: 620px) {
+  .pipe-arrow { padding-top: 0; transform: rotate(90deg); justify-content: flex-start; padding-left: 16px; }
+}
+
+/* Result card */
+.result-card {
+  border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface); padding: 20px 24px;
+  margin-bottom: 24px;
+  display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start;
+}
+.result-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-3); margin-bottom: 4px; }
+.result-value { font-size: 18px; font-weight: 600; font-family: 'DM Serif Display', serif; }
+.result-col { min-width: 120px; }
+
+.conf-bar-wrap { flex: 1; min-width: 200px; }
+.conf-bar-bg { height: 8px; border-radius: 4px; background: var(--bg-2); margin-top: 8px; overflow: hidden; }
+.conf-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+
+.action-box {
+  flex: 2; min-width: 240px;
+  background: var(--bg-2); border-radius: 8px; padding: 12px 16px;
+}
+.action-box p { font-size: 13px; color: var(--fg-2); margin-top: 4px; }
+
+/* Escalation notice */
+.escalation-notice {
+  border-radius: 10px; padding: 16px 20px;
+  display: flex; gap: 12px; align-items: flex-start;
+  margin-bottom: 24px;
+}
+.escalation-notice.low  { background: var(--danger-light); border: 1px solid var(--danger); }
+.escalation-notice.ok   { background: var(--human-light);  border: 1px solid var(--human); }
+.escalation-notice svg  { flex-shrink: 0; margin-top: 2px; }
+.escalation-notice p    { font-size: 13px; line-height: 1.6; }
+.escalation-notice strong { display: block; font-weight: 600; margin-bottom: 4px; }
+
+/* Code block */
+.code-section { margin-bottom: 32px; }
+.code-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.code-toggle {
+  font-size: 12px; color: var(--accent); background: none; border: none;
+  cursor: pointer; font-family: inherit; font-weight: 500; padding: 0;
+}
+.code-toggle:hover { text-decoration: underline; }
+pre {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 20px; overflow-x: auto;
+  font-family: 'DM Mono', monospace; font-size: 12px;
+  line-height: 1.7; color: var(--fg-2);
+}
+pre .kw  { color: var(--ai); font-weight: 500; }
+pre .st  { color: var(--human); }
+pre .cm  { color: var(--fg-3); font-style: italic; }
+pre .fn  { color: var(--accent); }
+pre .nm  { color: var(--warn); }
+
+/* Guardrail */
+.guardrail {
+  background: var(--warn-light); border: 1px solid var(--warn);
+  border-radius: 10px; padding: 16px 20px;
+  display: flex; gap: 12px; align-items: flex-start;
+}
+.guardrail svg { flex-shrink: 0; margin-top: 2px; }
+.guardrail p { font-size: 13px; color: var(--fg-2); line-height: 1.6; }
+.guardrail strong { color: var(--warn); }
+
+.divider { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+
+footer {
+  border-top: 1px solid var(--border);
+  padding: 24px 0 32px;
+  display: flex; gap: 16px; flex-wrap: wrap; align-items: center; justify-content: space-between;
+}
+footer a { color: var(--accent); text-decoration: none; font-size: 13px; }
+footer a:hover { text-decoration: underline; }
+footer p { color: var(--fg-3); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="logo">Pixi · AI Reconciliation</span>
+  <a href="index.html">Project Brief</a>
+  <a href="worked-example.html">Worked Example</a>
+  <a href="demo.html" class="active">AI Demo</a>
+</nav>
+
+<div class="page">
+
+  <div class="hero">
+    <div class="hero-meta">
+      <span class="badge badge-ai">AI Exception Explanation</span>
+      <span class="badge badge-python">GPT-4o · Python</span>
+    </div>
+    <h1>Exception Explanation Step</h1>
+    <p>This demo shows how the AI layer classifies a fulfilment exception. Select a scenario below to see the exact input sent to GPT-4o, the prompt used, and the structured JSON response returned.</p>
+  </div>
+
+  <h3>Select a scenario</h3>
+  <div class="scenario-tabs" id="tabs"></div>
+
+  <div id="pipeline-area"></div>
+
+  <hr class="divider">
+
+  <div class="code-section">
+    <div class="code-header">
+      <h2>Python implementation</h2>
+      <button class="code-toggle" id="code-toggle" onclick="toggleCode()">Show code</button>
+    </div>
+    <p style="margin-bottom:16px">The function below is the full implementation. It calls the OpenAI API, validates the JSON response, and falls back to human escalation if confidence is below 0.70 or the response is malformed.</p>
+    <pre id="code-block" style="display:none"><span class="kw">import</span> openai, json
+
+<span class="cm"># Confidence threshold: escalate to Ops if AI is not sure enough</span>
+CONFIDENCE_THRESHOLD = <span class="nm">0.70</span>
+
+<span class="kw">def</span> <span class="fn">explain_exception</span>(order_ref, sku, shopify_qty, warehouse_qty, email_snippet=<span class="kw">None</span>):
+    <span class="st">"""
+    Calls GPT-4o to classify a fulfilment discrepancy and suggest an action.
+    Returns a dict with keys: type, confidence, action, escalate.
+    Falls back to escalation if confidence &lt; threshold or response is malformed.
+    """</span>
+
+    email_note = <span class="st">f'Warehouse email excerpt: "{email_snippet}"'</span> <span class="kw">if</span> email_snippet <span class="kw">else</span> <span class="st">"No warehouse email available."</span>
+
+    prompt = <span class="st">f"""You are a fulfilment reconciliation assistant for a beauty brand.
+A discrepancy has been flagged between Shopify and the warehouse dispatch file.
+
+Order: {order_ref}
+SKU: {sku}
+Shopify qty: {shopify_qty}
+Warehouse dispatched qty: {warehouse_qty}
+{email_note}
+
+Classify this exception and suggest a next action.
+Respond ONLY with valid JSON in this exact format:
+{{
+  "type": "&lt;exception type&gt;",
+  "confidence": &lt;0.0–1.0&gt;,
+  "action": "&lt;suggested action&gt;",
+  "escalate": &lt;true|false&gt;
+}}"""</span>
+
+    <span class="kw">try</span>:
+        response = openai.chat.completions.create(
+            model=<span class="st">"gpt-4o"</span>,
+            messages=[{<span class="st">"role"</span>: <span class="st">"user"</span>, <span class="st">"content"</span>: prompt}],
+            temperature=<span class="nm">0.1</span>,
+            response_format={<span class="st">"type"</span>: <span class="st">"json_object"</span>},
+        )
+        result = json.loads(response.choices[<span class="nm">0</span>].message.content)
+
+        <span class="cm"># Enforce confidence threshold regardless of model suggestion</span>
+        <span class="kw">if</span> result.get(<span class="st">"confidence"</span>, <span class="nm">0</span>) &lt; CONFIDENCE_THRESHOLD:
+            result[<span class="st">"escalate"</span>] = <span class="kw">True</span>
+
+        <span class="kw">return</span> result
+
+    <span class="kw">except</span> (json.JSONDecodeError, KeyError):
+        <span class="cm"># Non-JSON or malformed response: always escalate</span>
+        <span class="kw">return</span> {
+            <span class="st">"type"</span>: <span class="st">"Parse error"</span>,
+            <span class="st">"confidence"</span>: <span class="nm">0.0</span>,
+            <span class="st">"action"</span>: <span class="st">"Escalate to Ops Manager — AI response could not be parsed."</span>,
+            <span class="st">"escalate"</span>: <span class="kw">True</span>,
+        }</pre>
+  </div>
+
+  <hr class="divider">
+
+  <div class="guardrail">
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style="color:var(--warn)">
+      <path d="M10 2L2 17h16L10 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M10 8v4M10 14.5v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <p><strong>Guardrail:</strong> AI output is always a suggestion. No record moves to Confirmed status without an explicit human decision. If confidence falls below 0.70, or if the model returns non-JSON output, the exception is auto-routed to the Ops Manager — no action is taken.</p>
+  </div>
+
+  <footer>
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      <a href="index.html">← Project Brief</a>
+      <a href="worked-example.html">Worked Example</a>
+      <a href="https://github.com/Olayinka08/pixi-fulfilment-case-study" target="_blank">GitHub Repository</a>
+    </div>
+    <p>Olayinka Bello · Pixi Beauty AI Analyst submission</p>
+  </footer>
+
+</div>
+
+<script>
+const scenarios = [
+  {
+    label: "Partial shipment",
+    order: "ORD-4402",
+    input: {
+      order_ref: "ORD-4402",
+      sku: "GLOW-50ML",
+      shopify_qty: 2,
+      warehouse_qty: 1,
+      email_snippet: null
+    },
+    prompt_lines: [
+      'Order: ORD-4402',
+      'SKU: GLOW-50ML',
+      'Shopify qty: 2',
+      'Warehouse dispatched qty: 1',
+      'No warehouse email available.',
+      '',
+      '"Classify this exception and',
+      'suggest a next action.',
+      'Return JSON."',
+    ],
+    output: {
+      type: "Partial fulfilment",
+      confidence: 0.72,
+      action: "Confirm 2nd unit with warehouse before posting.",
+      escalate: false
+    }
+  },
+  {
+    label: "Duplicate reference",
+    order: "ORD-4403",
+    input: {
+      order_ref: "ORD-4403",
+      sku: "TONER-100ML",
+      shopify_qty: "2 entries (x5 each)",
+      warehouse_qty: 5,
+      email_snippet: null
+    },
+    prompt_lines: [
+      'Order: ORD-4403',
+      'SKU: TONER-100ML',
+      'Shopify qty: 2 entries (x5 each)',
+      'Warehouse dispatched qty: 5',
+      'No warehouse email available.',
+      '',
+      '"Classify this exception and',
+      'suggest a next action.',
+      'Return JSON."',
+    ],
+    output: {
+      type: "Duplicate entry",
+      confidence: 0.65,
+      action: "Escalate — Shopify shows duplicate. Do not post until confirmed.",
+      escalate: true
+    }
+  },
+  {
+    label: "Email-explained delay",
+    order: "ORD-4404",
+    input: {
+      order_ref: "ORD-4404",
+      sku: "MIST-75ML",
+      shopify_qty: 4,
+      warehouse_qty: 4,
+      email_snippet: "Courier hold due to weather. Dispatched 17 Oct."
+    },
+    prompt_lines: [
+      'Order: ORD-4404',
+      'SKU: MIST-75ML',
+      'Shopify qty: 4',
+      'Warehouse dispatched qty: 4',
+      'Email: "Courier hold due to',
+      ' weather. Dispatched 17 Oct."',
+      '',
+      '"Classify this exception and',
+      'suggest a next action.',
+      'Return JSON."',
+    ],
+    output: {
+      type: "Explained delay",
+      confidence: 0.91,
+      action: "Accept with delay note. No quantity discrepancy.",
+      escalate: false
+    }
+  },
+  {
+    label: "Low confidence (escalate)",
+    order: "ORD-4405",
+    input: {
+      order_ref: "ORD-4405",
+      sku: "BLSH-15G",
+      shopify_qty: 3,
+      warehouse_qty: 2,
+      email_snippet: "Some items held pending stock check."
+    },
+    prompt_lines: [
+      'Order: ORD-4405',
+      'SKU: BLSH-15G',
+      'Shopify qty: 3',
+      'Warehouse dispatched qty: 2',
+      'Email: "Some items held pending',
+      ' stock check."',
+      '',
+      '"Classify this exception and',
+      'suggest a next action.',
+      'Return JSON."',
+    ],
+    output: {
+      type: "Ambiguous — stock hold or partial",
+      confidence: 0.58,
+      action: "Confidence below 0.70 — auto-escalated to Ops Manager.",
+      escalate: true
+    }
+  }
+];
+
+function confColor(v) {
+  if (v >= 0.70) return 'var(--human)';
+  return 'var(--danger)';
+}
+
+function renderPipeline(s) {
+  const inp = s.input;
+  const out = s.output;
+  const escalate = out.escalate;
+
+  const inputLines = Object.entries(inp).map(([k, v]) =>
+    v === null
+      ? `<div><span class="key">${k}:</span> <span class="val" style="color:var(--fg-3)">None</span></div>`
+      : `<div><span class="key">${k}:</span> <span class="${typeof v === 'number' ? 'num' : 'str'}">${typeof v === 'string' && v !== 'null' ? '"' + v + '"' : v}</span></div>`
+  ).join('');
+
+  const promptLines = s.prompt_lines.map(l =>
+    l === '' ? '<div>&nbsp;</div>' : `<div>${l}</div>`
+  ).join('');
+
+  const outputLines = Object.entries(out).map(([k, v]) => {
+    let cls = 'str';
+    if (typeof v === 'number') cls = 'num';
+    if (typeof v === 'boolean') cls = 'kw';
+    const disp = typeof v === 'string' ? '"' + v + '"' : String(v);
+    return `<div><span class="key">${k}:</span> <span class="${cls}">${disp}</span></div>`;
+  }).join('');
+
+  const confPct = Math.round(out.confidence * 100);
+  const escHtml = escalate
+    ? `<div class="escalation-notice low">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style="color:var(--danger)"><path d="M10 2L2 17h16L10 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M10 8v4M10 14.5v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <p><strong>Escalated to Ops Manager</strong>${out.confidence < 0.70 ? ' — Confidence ' + out.confidence.toFixed(2) + ' is below the 0.70 threshold.' : ''} No action taken. Human review required before anything is posted.</p>
+      </div>`
+    : `<div class="escalation-notice ok">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style="color:var(--human)"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/><path d="M7 10l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <p><strong>Passed to human review</strong> — Confidence ${out.confidence.toFixed(2)} meets threshold. Ops lead sees the AI suggestion alongside the raw data and approves or rejects.</p>
+      </div>`;
+
+  return `
+    <div class="pipeline">
+      <div class="panel panel-input">
+        <div class="panel-header">
+          <span class="dot" style="background:var(--teal)"></span>Input
+        </div>
+        <div class="panel-body">${inputLines}</div>
+      </div>
+      <div class="panel panel-prompt">
+        <div class="panel-header">
+          <span class="dot" style="background:var(--purple)"></span>Prompt (excerpt)
+        </div>
+        <div class="panel-body">${promptLines}</div>
+      </div>
+      <div class="panel panel-output">
+        <div class="panel-header">
+          <span class="dot" style="background:var(--green)"></span>GPT-4o Output
+        </div>
+        <div class="panel-body">${outputLines}</div>
+      </div>
+    </div>
+
+    <div class="result-card">
+      <div class="result-col">
+        <div class="result-label">Exception type</div>
+        <div class="result-value" style="font-size:16px;color:var(--ai)">${out.type}</div>
+      </div>
+      <div class="result-col conf-bar-wrap">
+        <div class="result-label">Confidence</div>
+        <div class="result-value" style="color:${confColor(out.confidence)}">${out.confidence.toFixed(2)}</div>
+        <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:${confPct}%;background:${confColor(out.confidence)}"></div></div>
+      </div>
+      <div class="result-col action-box" style="flex:2;min-width:240px">
+        <div class="result-label">Suggested action</div>
+        <p>${out.action}</p>
+      </div>
+    </div>
+
+    ${escHtml}
+  `;
+}
+
+function selectTab(idx) {
+  document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+  document.getElementById('pipeline-area').innerHTML = renderPipeline(scenarios[idx]);
+}
+
+// Build tabs
+const tabsEl = document.getElementById('tabs');
+scenarios.forEach((s, i) => {
+  const btn = document.createElement('button');
+  btn.className = 'tab-btn' + (i === 0 ? ' active' : '');
+  btn.textContent = s.label;
+  btn.onclick = () => selectTab(i);
+  tabsEl.appendChild(btn);
+});
+
+// Initial render
+document.getElementById('pipeline-area').innerHTML = renderPipeline(scenarios[0]);
+
+function toggleCode() {
+  const block = document.getElementById('code-block');
+  const btn = document.getElementById('code-toggle');
+  const visible = block.style.display !== 'none';
+  block.style.display = visible ? 'none' : 'block';
+  btn.textContent = visible ? 'Show code' : 'Hide code';
+}
+</script>
+</body>
+</html>
