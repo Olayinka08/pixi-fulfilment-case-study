@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Pixi Fulfilment Reconciliation</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #F7F6F2;
+  --bg-2: #EEECEA;
+  --surface: #FFFFFF;
+  --border: #D8D4CE;
+  --fg: #1A1816;
+  --fg-2: #5C5750;
+  --fg-3: #8C877F;
+  --accent: #1A4B8C;
+  --accent-light: #E8EEFA;
+  --ai: #6B3FA0;
+  --ai-light: #F0EBFA;
+  --human: #1A7A4A;
+  --human-light: #E8F5EE;
+  --warn: #B45309;
+  --warn-light: #FEF3C7;
+  --rule: #1D6FA8;
+  --rule-light: #E8F4FB;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121110; --bg-2: #1C1A18; --surface: #242220; --border: #3A3733;
+    --fg: #F0EDE8; --fg-2: #A89F94; --fg-3: #6B6460;
+    --accent: #4A85D4; --accent-light: #1A2A40;
+    --ai: #9B6DD4; --ai-light: #2A1A40;
+    --human: #2AA866; --human-light: #0E2A1E;
+    --warn: #D97706; --warn-light: #2A1E08;
+    --rule: #3B9FD4; --rule-light: #0E1E2A;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121110; --bg-2: #1C1A18; --surface: #242220; --border: #3A3733;
+  --fg: #F0EDE8; --fg-2: #A89F94; --fg-3: #6B6460;
+  --accent: #4A85D4; --accent-light: #1A2A40;
+  --ai: #9B6DD4; --ai-light: #2A1A40;
+  --human: #2AA866; --human-light: #0E2A1E;
+  --warn: #D97706; --warn-light: #2A1E08;
+  --rule: #3B9FD4; --rule-light: #0E1E2A;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0;
+}
+
+nav {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 0;
+  z-index: 10;
+  flex-wrap: wrap;
+}
+nav a {
+  text-decoration: none;
+  color: var(--fg-2);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+nav a:hover, nav a.active { background: var(--accent-light); color: var(--accent); }
+nav .logo {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 15px;
+  color: var(--fg);
+  padding: 5px 12px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.page { display: none; max-width: 900px; margin: 0 auto; padding-block: 40px; }
+.page.active { display: block; }
+
+h1 {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: clamp(24px, 5vw, 36px);
+  line-height: 1.2;
+  text-wrap: balance;
+}
+h2 {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: clamp(18px, 3vw, 22px);
+  text-wrap: balance;
+  margin-bottom: 16px;
+}
+h3 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--fg-3);
+  margin-bottom: 10px;
+}
+p { color: var(--fg-2); line-height: 1.7; }
+
+.page-header {
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 24px;
+  margin-bottom: 36px;
+}
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.page-header p { font-size: 15px; margin-top: 10px; max-width: 620px; }
+
+/* Flow labels */
+.flow-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 3px;
+  margin-bottom: 16px;
+}
+.flow-label.current { background: var(--warn-light); color: var(--warn); }
+.flow-label.proposed { background: var(--human-light); color: var(--human); }
+
+/* Flow steps */
+.flow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.flow-step {
+  flex: 1;
+  min-width: 130px;
+  padding: 16px 14px;
+  border-right: 1px solid var(--border);
+}
+.flow-step:last-child { border-right: none; }
+.flow-step .step-num {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-3);
+  margin-bottom: 6px;
+}
+.flow-step .step-title { font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+.step-who {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-bottom: 6px;
+}
+.who-human { background: var(--human-light); color: var(--human); }
+.who-ai    { background: var(--ai-light);    color: var(--ai);    }
+.who-rule  { background: var(--rule-light);  color: var(--rule);  }
+.flow-step p { font-size: 12px; color: var(--fg-3); line-height: 1.5; }
+
+/* Arch grid */
+.arch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.arch-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.arch-card .arch-layer {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  margin-bottom: 6px;
+}
+.arch-card .arch-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.arch-card ul { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.arch-card ul li { font-size: 12px; color: var(--fg-2); padding-left: 12px; position: relative; }
+.arch-card ul li::before { content: '›'; position: absolute; left: 0; color: var(--fg-3); }
+
+/* Judgment cards */
+.judgment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.judgment-card {
+  border-radius: 8px;
+  padding: 16px;
+  border-left: 3px solid;
+}
+.judgment-card.rule-card  { background: var(--rule-light);  border-color: var(--rule);  }
+.judgment-card.ai-card    { background: var(--ai-light);    border-color: var(--ai);    }
+.judgment-card.human-card { background: var(--human-light); border-color: var(--human); }
+.judgment-card .jc-title  { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.rule-card  .jc-title { color: var(--rule);  }
+.ai-card    .jc-title { color: var(--ai);    }
+.human-card .jc-title { color: var(--human); }
+.judgment-card ul { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.judgment-card ul li { font-size: 12px; color: var(--fg-2); padding-left: 12px; position: relative; }
+.judgment-card ul li::before { content: '›'; position: absolute; left: 0; color: var(--fg-3); }
+
+.guardrail-box {
+  background: var(--warn-light);
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+.guardrail-box .gb-title {
+  font-size: 12px; font-weight: 600; color: var(--warn);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px;
+}
+.guardrail-box p { font-size: 13px; color: var(--fg-2); }
+
+/* Metrics */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.metric-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.metric-card .metric-val {
+  font-family: 'DM Mono', monospace;
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--accent);
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.metric-card .metric-label { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.metric-card .metric-note  { font-size: 11px; color: var(--fg-3); }
+
+/* Pilot */
+.pilot-steps { display: flex; flex-direction: column; gap: 12px; }
+.pilot-step {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.ps-num {
+  background: var(--accent); color: #fff;
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600;
+  font-family: 'DM Mono', monospace;
+  flex-shrink: 0;
+}
+.ps-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.pilot-step p { font-size: 13px; color: var(--fg-2); }
+
+.criteria-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.criteria-list li {
+  display: flex; align-items: flex-start; gap: 10px;
+  font-size: 13px; color: var(--fg-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+.criteria-list li::before { content: '✓'; color: var(--human); font-weight: 700; flex-shrink: 0; }
+
+.workflow-section { margin-bottom: 36px; }
+.divider { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+.footnote {
+  font-size: 11px; color: var(--fg-3);
+  border-top: 1px solid var(--border);
+  padding-top: 16px; margin-top: 32px;
+}
+.assumption { font-size: 11px; color: var(--fg-3); font-style: italic; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="logo">Pixi</span>
+  <a href="#" class="active" data-page="p1">Page 1: Workflow &amp; Architecture</a>
+  <a href="#" data-page="p2">Page 2: AI Judgment &amp; Outcomes</a>
+</nav>
+
+<!-- PAGE 1 -->
+<div class="page active" id="p1">
+  <div class="page-header">
+    <div class="eyebrow">AI Case Study · Fulfilment Operations</div>
+    <h1>AI-Assisted Weekly Fulfilment Reconciliation</h1>
+    <p>Reducing manual checking time while keeping reconciliation accurate, traceable and under human control. Prepared by Olayinka Bello.</p>
+  </div>
+
+  <div class="workflow-section">
+    <h2>Current Process</h2>
+    <div class="flow-label current">⚠ Manual — ~4 hrs/week</div>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <div class="step-title">Receive files</div>
+        <span class="step-who who-human">Operations</span>
+        <p>Warehouse dispatch CSV and Shopify fulfilment export downloaded manually each Monday</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <div class="step-title">Manual compare</div>
+        <span class="step-who who-human">Operations</span>
+        <p>VLOOKUP or side-by-side comparison in Excel. Differences flagged by eye</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <div class="step-title">Investigate gaps</div>
+        <span class="step-who who-human">Ops + Finance</span>
+        <p>Email warehouse for explanations. No structured format, replies vary</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <div class="step-title">Judgment call</div>
+        <span class="step-who who-human">Finance</span>
+        <p>Decide which exceptions to accept, escalate or chase. Relies on individual experience</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">05</div>
+        <div class="step-title">ERP prep</div>
+        <span class="step-who who-human">Finance</span>
+        <p>Manually prepare NetSuite posting file. Error-prone if exceptions are unresolved</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="workflow-section">
+    <h2>Proposed Process</h2>
+    <div class="flow-label proposed">✓ AI-assisted — target ~1 hr/week human time</div>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <div class="step-title">Ingest</div>
+        <span class="step-who who-rule">Automated</span>
+        <p>Shopify webhook and warehouse SFTP file parsed automatically each Monday morning</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <div class="step-title">Deterministic match</div>
+        <span class="step-who who-rule">Rules engine</span>
+        <p>Exact match on order ref, SKU and qty. Clean matches auto-confirmed with full audit log entry</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <div class="step-title">AI triage</div>
+        <span class="step-who who-ai">AI (LLM)</span>
+        <p>Exceptions classified and explained. Warehouse emails parsed for context. Confidence score assigned</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <div class="step-title">Human review</div>
+        <span class="step-who who-human">Ops lead</span>
+        <p>Reviews AI explanations alongside raw evidence. Approves, rejects or escalates each exception</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">05</div>
+        <div class="step-title">Approved export</div>
+        <span class="step-who who-human">Finance approves</span>
+        <p>NetSuite file generated only after human sign-off. Full audit trail attached. No auto-posting</p>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <h2>Technology Architecture</h2>
+  <div class="arch-grid">
+    <div class="arch-card">
+      <div class="arch-layer">Sources</div>
+      <div class="arch-title">Data Inputs</div>
+      <ul>
+        <li>Shopify Fulfilment API (webhook)</li>
+        <li>Warehouse dispatch CSV (SFTP or email)</li>
+        <li>Warehouse email replies (IMAP)</li>
+      </ul>
+    </div>
+    <div class="arch-card">
+      <div class="arch-layer">Bronze Layer</div>
+      <div class="arch-title">Raw Ingestion</div>
+      <ul>
+        <li>Python ingest script (scheduled)</li>
+        <li>Timestamped, source-tagged rows</li>
+        <li>Immutable — never overwritten</li>
+      </ul>
+    </div>
+    <div class="arch-card">
+      <div class="arch-layer">Silver Layer</div>
+      <div class="arch-title">Standardise &amp; Match</div>
+      <ul>
+        <li>Normalise order refs, strip prefixes</li>
+        <li>Canonical SKU mapping</li>
+        <li>Deterministic match engine</li>
+        <li>Exception flagging rules</li>
+      </ul>
+    </div>
+    <div class="arch-card">
+      <div class="arch-layer">AI Layer</div>
+      <div class="arch-title">Exception Triage</div>
+      <ul>
+        <li>LLM: GPT-4o or Claude API</li>
+        <li>Structured prompt per exception</li>
+        <li>Confidence score (0.0 to 1.0)</li>
+        <li>Suggested action and reasoning</li>
+      </ul>
+    </div>
+    <div class="arch-card">
+      <div class="arch-layer">Gold Layer</div>
+      <div class="arch-title">Review Interface</div>
+      <ul>
+        <li>Exception dashboard (web UI)</li>
+        <li>Approve / Reject / Escalate per row</li>
+        <li>Human sign-off required to export</li>
+        <li>Full audit log with timestamps</li>
+      </ul>
+    </div>
+    <div class="arch-card">
+      <div class="arch-layer">Audit Trail</div>
+      <div class="arch-title">Traceability</div>
+      <ul>
+        <li>Every match decision logged</li>
+        <li>AI explanation stored separately from approval</li>
+        <li>Reviewer name and timestamp on each row</li>
+        <li>Immutable export file with hash</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="assumption">Tool choices: Python for portability and data-team familiarity. LLM API (not a local model) to keep maintenance low. No production Shopify or NetSuite access required in pilot — files used directly.</p>
+
+  <div class="footnote">Page 1 of 2 · Pixi Fulfilment Reconciliation · Olayinka Bello · linkedin.com/in/olayinka-bello-mba-04960b12a</div>
+</div>
+
+<!-- PAGE 2 -->
+<div class="page" id="p2">
+  <div class="page-header">
+    <div class="eyebrow">AI Case Study · Page 2</div>
+    <h1>AI Judgment, Business Outcomes &amp; Pilot Plan</h1>
+    <p>Where AI adds value, where it must not decide, and how to measure success.</p>
+  </div>
+
+  <h2>AI Judgment Framework</h2>
+  <div class="judgment-grid">
+    <div class="judgment-card rule-card">
+      <div class="jc-title">Deterministic Rules (no AI)</div>
+      <ul>
+        <li>Exact order ref + SKU + qty match: auto-confirm</li>
+        <li>Duplicate order ref in same file: flag immediately</li>
+        <li>Order ref in Shopify but absent from warehouse: open exception</li>
+        <li>Quantity difference greater than 0: always escalate</li>
+        <li>Value difference greater than £0.01: flag for Finance</li>
+      </ul>
+    </div>
+    <div class="judgment-card ai-card">
+      <div class="jc-title">AI Adds Value (LLM)</div>
+      <ul>
+        <li>Parse free-text warehouse email for discrepancy explanation</li>
+        <li>Classify exception: partial shipment, split delivery, timing gap, admin error</li>
+        <li>Match non-standard order refs (ORD-1234 vs #1234)</li>
+        <li>Summarise pattern across multiple exceptions</li>
+        <li>Draft follow-up question to warehouse in structured format</li>
+      </ul>
+    </div>
+    <div class="judgment-card human-card">
+      <div class="jc-title">Human Judgment Required</div>
+      <ul>
+        <li>Accept or reject any AI explanation before it affects the record</li>
+        <li>Decide if a partial shipment is acceptable for NetSuite posting</li>
+        <li>Approve final export file — no auto-posting ever</li>
+        <li>Escalate to warehouse operations manager</li>
+        <li>Override any AI classification at any time</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="guardrail-box">
+    <div class="gb-title">⚠ Critical Guardrail: AI Explanation ≠ Confirmed Match</div>
+    <p>AI output is stored as a <strong>suggestion</strong>, not a resolution. The exception status remains <em>Unresolved</em> until a named human reviewer explicitly approves it. The audit log records both the AI explanation and the human decision separately. A reviewer cannot approve an exception without viewing the raw evidence alongside the AI suggestion — the interface enforces this sequencing.</p>
+  </div>
+
+  <hr class="divider">
+
+  <h2>Business Outcomes</h2>
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-val">75%</div>
+      <div class="metric-label">Time saved per week</div>
+      <div class="metric-note">From ~4 hrs to ~1 hr human review time</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-val">100%</div>
+      <div class="metric-label">Clean matches auto-confirmed</div>
+      <div class="metric-note">Deterministic rules — no human time on clear cases</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-val">&lt;24h</div>
+      <div class="metric-label">Exception resolution</div>
+      <div class="metric-note">vs. current 2–3 day email cycle</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-val">0</div>
+      <div class="metric-label">Auto-postings to NetSuite</div>
+      <div class="metric-note">Human approval required every time, without exception</div>
+    </div>
+  </div>
+
+  <h3>How to Measure</h3>
+  <div class="arch-grid" style="margin-bottom:8px;">
+    <div class="arch-card">
+      <div class="arch-layer">Time Saved</div>
+      <div class="arch-title">Measure</div>
+      <ul>
+        <li>Log reviewer time per session (start/end timestamp)</li>
+        <li>Compare 4-week pre-pilot vs. 4-week post-pilot average</li>
+      </ul>
+    </div>
+    <div class="arch-card">
+      <div class="arch-layer">Accuracy</div>
+      <div class="arch-title">Measure</div>
+      <ul>
+        <li>Rate of AI suggestions overridden by human</li>
+        <li>Post-posting error rate in NetSuite (target: 0)</li>
+      </ul>
+    </div>
+    <div class="arch-card">
+      <div class="arch-layer">Exceptions</div>
+      <div class="arch-title">Measure</div>
+      <ul>
+        <li>Count exceptions unresolved at end of each week</li>
+        <li>Track age of oldest unresolved exception</li>
+      </ul>
+    </div>
+    <div class="arch-card">
+      <div class="arch-layer">Operating Cost</div>
+      <div class="arch-title">Measure</div>
+      <ul>
+        <li>LLM API cost per week (logged per call)</li>
+        <li>Target: API cost less than 10% of time saved value</li>
+      </ul>
+    </div>
+  </div>
+  <p class="assumption">Assumptions: current process = 4 hrs/week across Ops and Finance combined; blended hourly cost = £35/hr; LLM API cost ~£2–5/week at current GPT-4o pricing for ~50 exceptions/week. Validate against actual Pixi team time logs in pilot week 1.</p>
+
+  <hr class="divider">
+
+  <h2>Pilot Plan</h2>
+  <div class="pilot-steps">
+    <div class="pilot-step">
+      <div class="ps-num">1</div>
+      <div>
+        <div class="ps-title">Week 1–2: Shadow run</div>
+        <p>Automated pipeline runs in parallel with existing manual process. No decisions made from AI output yet. Compare outputs at end of each week.</p>
+      </div>
+    </div>
+    <div class="pilot-step">
+      <div class="ps-num">2</div>
+      <div>
+        <div class="ps-title">Week 3–4: AI triage, human decisions</div>
+        <p>Ops lead uses the review interface with AI explanations visible. Manual process runs simultaneously as a check. Both methods timed.</p>
+      </div>
+    </div>
+    <div class="pilot-step">
+      <div class="ps-num">3</div>
+      <div>
+        <div class="ps-title">Week 5: First live export</div>
+        <p>Finance approves NetSuite posting file from new system for the first time. Manual file produced in parallel as a backup.</p>
+      </div>
+    </div>
+    <div class="pilot-step">
+      <div class="ps-num">4</div>
+      <div>
+        <div class="ps-title">Week 6: Review and decide</div>
+        <p>Review all four metrics. If acceptance criteria met, retire the manual process. If not, identify gaps and extend the pilot.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:28px;">Acceptance Criteria</h3>
+  <ul class="criteria-list">
+    <li>Human review time reduced by at least 50% vs. pre-pilot baseline</li>
+    <li>Zero NetSuite posting errors attributable to the new process in weeks 3–5</li>
+    <li>All exceptions resolved within 24 hours of file receipt</li>
+    <li>Ops lead rates AI exception explanations as "useful" or "very useful" in at least 70% of cases</li>
+    <li>Full audit trail present for every matched and unmatched record</li>
+  </ul>
+
+  <div class="footnote">Page 2 of 2 · Pixi Fulfilment Reconciliation · Olayinka Bello · linkedin.com/in/olayinka-bello-mba-04960b12a · Confirmation word: chicken sandwich</div>
+</div>
+
+<script>
+const pages = document.querySelectorAll('.page');
+const links  = document.querySelectorAll('nav a[data-page]');
+links.forEach(link => {
+  link.addEventListener('click', e => {
+    e.preventDefault();
+    const target = link.dataset.page;
+    pages.forEach(p => p.classList.remove('active'));
+    links.forEach(l => l.classList.remove('active'));
+    document.getElementById(target).classList.add('active');
+    link.classList.add('active');
+    window.scrollTo(0, 0);
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Worked Example — Pixi Reconciliation</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #F7F6F2; --surface: #FFFFFF; --border: #D8D4CE;
+  --fg: #1A1816; --fg-2: #5C5750; --fg-3: #8C877F;
+  --accent: #1A4B8C; --accent-light: #E8EEFA;
+  --ai: #6B3FA0; --ai-light: #F0EBFA;
+  --human: #1A7A4A; --human-light: #E8F5EE;
+  --warn: #B45309; --warn-light: #FEF3C7;
+  --danger: #C0392B; --danger-light: #FDEEEC;
+  --rule: #1D6FA8; --rule-light: #E8F4FB;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121110; --surface: #242220; --border: #3A3733;
+    --fg: #F0EDE8; --fg-2: #A89F94; --fg-3: #6B6460;
+    --accent: #4A85D4; --accent-light: #1A2A40;
+    --ai: #9B6DD4; --ai-light: #2A1A40;
+    --human: #2AA866; --human-light: #0E2A1E;
+    --warn: #D97706; --warn-light: #2A1E08;
+    --danger: #E05444; --danger-light: #2A1210;
+    --rule: #3B9FD4; --rule-light: #0E1E2A;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121110; --surface: #242220; --border: #3A3733;
+  --fg: #F0EDE8; --fg-2: #A89F94; --fg-3: #6B6460;
+  --accent: #4A85D4; --accent-light: #1A2A40;
+  --ai: #9B6DD4; --ai-light: #2A1A40;
+  --human: #2AA866; --human-light: #0E2A1E;
+  --warn: #D97706; --warn-light: #2A1E08;
+  --danger: #E05444; --danger-light: #2A1210;
+  --rule: #3B9FD4; --rule-light: #0E1E2A;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 14px; line-height: 1.6;
+  padding: 0 max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+nav {
+  position: sticky; top: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 4px;
+  padding: 10px 0; z-index: 10; flex-wrap: wrap;
+}
+nav a {
+  text-decoration: none; color: var(--fg-2);
+  font-size: 12px; font-weight: 500;
+  padding: 5px 12px; border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+nav a:hover { background: var(--accent-light); color: var(--accent); }
+nav .logo {
+  font-family: Georgia, serif; font-size: 15px; font-weight: 600;
+  color: var(--fg); padding: 5px 12px; margin-right: 8px; flex-shrink: 0;
+}
+nav .back-link { color: var(--accent); font-weight: 600; }
+
+.wrapper { max-width: 960px; margin: 0 auto; padding-block: 40px; }
+
+.page-header { border-bottom: 2px solid var(--accent); padding-bottom: 24px; margin-bottom: 36px; }
+.eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; }
+h1 { font-family: Georgia, serif; font-size: clamp(22px, 4vw, 30px); line-height: 1.2; }
+.page-header p { font-size: 15px; color: var(--fg-2); margin-top: 10px; max-width: 640px; line-height: 1.7; }
+
+h2 { font-family: Georgia, serif; font-size: 18px; margin-bottom: 16px; }
+
+/* Data source tables */
+.source-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 32px; }
+@media (max-width: 600px) { .source-grid { grid-template-columns: 1fr; } }
+
+.source-table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.source-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.shopify-label { background: var(--accent-light); color: var(--accent); }
+.warehouse-label { background: var(--rule-light); color: var(--rule); }
+
+.source-table-wrap .tbl-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th {
+  text-align: left; font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg); white-space: nowrap;
+  background: var(--bg);
+}
+td { padding: 7px 12px; border-bottom: 1px solid var(--border); color: var(--fg-2); }
+tr:last-child td { border-bottom: none; }
+code {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px; color: var(--fg);
+  background: var(--bg); padding: 1px 4px; border-radius: 3px;
+}
+
+/* Reconciliation output */
+.recon-scroll { overflow-x: auto; margin-bottom: 8px; }
+.recon-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 700px; }
+.recon-table th {
+  background: var(--accent); color: #fff;
+  padding: 9px 12px; text-align: left;
+  font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
+  white-space: nowrap;
+}
+.recon-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.recon-table tr:last-child td { border-bottom: none; }
+.recon-table tr:hover td { background: var(--bg); }
+
+/* Status badges */
+.badge {
+  display: inline-block; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 3px;
+}
+.badge-auto    { background: var(--human-light); color: var(--human); }
+.badge-ai      { background: var(--ai-light);    color: var(--ai);    }
+.badge-esc     { background: var(--danger-light); color: var(--danger); }
+.badge-pending { background: var(--warn-light);  color: var(--warn);  }
+
+/* Confidence score */
+.conf { font-family: 'DM Mono', monospace; font-size: 11px; }
+.conf-high { color: var(--human); }
+.conf-med  { color: var(--warn);  }
+.conf-low  { color: var(--danger);}
+
+/* Scenario detail cards */
+.scenario-cards { display: flex; flex-direction: column; gap: 16px; margin-bottom: 32px; }
+.scenario-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+}
+.sc-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select: none;
+}
+.sc-num {
+  background: var(--accent); color: #fff;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600;
+  font-family: 'DM Mono', monospace; flex-shrink: 0;
+}
+.sc-title { font-size: 14px; font-weight: 600; flex: 1; }
+.sc-toggle { font-size: 18px; color: var(--fg-3); margin-left: auto; transition: transform 0.2s; }
+.sc-toggle.open { transform: rotate(180deg); }
+.sc-body { padding: 16px; display: none; }
+.sc-body.open { display: block; }
+
+.sc-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .sc-grid { grid-template-columns: 1fr; } }
+
+.sc-col-label {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--fg-3); margin-bottom: 6px;
+}
+.sc-col-content {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px; font-size: 12px; color: var(--fg-2); line-height: 1.6;
+}
+.sc-col-content.ai-bg { background: var(--ai-light); border-color: var(--ai); color: var(--fg); }
+.sc-col-content.human-bg { background: var(--human-light); border-color: var(--human); }
+.sc-col-content.warn-bg { background: var(--warn-light); border-color: var(--warn); }
+.sc-col-content strong { color: var(--fg); }
+.sc-col-content em { color: var(--fg-3); font-style: italic; }
+
+.follow-up-box {
+  background: var(--accent-light); border: 1px solid var(--accent);
+  border-radius: 6px; padding: 12px; margin-top: 12px;
+}
+.fu-label { font-size: 10px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+.follow-up-box p { font-size: 12px; color: var(--fg-2); }
+
+.divider { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+.footnote { font-size: 11px; color: var(--fg-3); border-top: 1px solid var(--border); padding-top: 16px; margin-top: 32px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="logo">Pixi</span>
+  <a href="index.html" class="back-link">← Brief</a>
+  <a href="worked-example.html">Worked Example</a>
+  <a href="demo.py">Python Demo ↓</a>
+</nav>
+
+<div class="wrapper">
+  <div class="page-header">
+    <div class="eyebrow">Worked Example · Synthetic Data</div>
+    <h1>Weekly Reconciliation Run: Four Scenarios</h1>
+    <p>A simulated reconciliation run showing how the system handles four real-world exception types: clean match, partial shipment, duplicate entry, and a discrepancy explained by a warehouse email. All data is synthetic.</p>
+  </div>
+
+  <!-- Source data -->
+  <h2>Source Data</h2>
+  <div class="source-grid">
+    <div class="source-table-wrap">
+      <div class="source-label shopify-label">Shopify Fulfilment Export (week of 14 Oct 2024)</div>
+      <div class="tbl-scroll">
+        <table>
+          <thead>
+            <tr><th>Order Ref</th><th>SKU</th><th>Qty</th><th>Value</th><th>Date</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>ORD-4401</code></td><td>SCRB-200ML</td><td>3</td><td>£74.85</td><td>13 Oct</td></tr>
+            <tr><td><code>ORD-4402</code></td><td>GLOW-50ML</td><td>2</td><td>£59.90</td><td>13 Oct</td></tr>
+            <tr><td><code>ORD-4403</code></td><td>TONER-100ML</td><td>5</td><td>£99.75</td><td>14 Oct</td></tr>
+            <tr><td><code>ORD-4403</code></td><td>TONER-100ML</td><td>5</td><td>£99.75</td><td>14 Oct</td></tr>
+            <tr><td><code>ORD-4404</code></td><td>MIST-75ML</td><td>4</td><td>£55.96</td><td>14 Oct</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="source-table-wrap">
+      <div class="source-label warehouse-label">Warehouse Dispatch File (week of 14 Oct 2024)</div>
+      <div class="tbl-scroll">
+        <table>
+          <thead>
+            <tr><th>Order Ref</th><th>SKU</th><th>Qty Sent</th><th>Date</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>ORD-4401</code></td><td>SCRB-200ML</td><td>3</td><td>13 Oct</td></tr>
+            <tr><td><code>ORD-4402</code></td><td>GLOW-50ML</td><td>1</td><td>14 Oct</td></tr>
+            <tr><td><code>ORD-4403</code></td><td>TONER-100ML</td><td>5</td><td>14 Oct</td></tr>
+            <tr><td><code>ORD-4404</code></td><td>MIST-75ML</td><td>4</td><td>17 Oct</td></tr>
+            <tr><td colspan="4" style="color:var(--fg-3);font-style:italic;font-size:11px;">— ORD-4404: warehouse email confirms 3-day delay due to courier hold</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- Reconciliation output -->
+  <h2>Reconciliation Output</h2>
+  <div class="recon-scroll">
+    <table class="recon-table">
+      <thead>
+        <tr>
+          <th>Order Ref</th>
+          <th>SKU</th>
+          <th>Scenario</th>
+          <th>Match Result</th>
+          <th>Handler</th>
+          <th>Confidence</th>
+          <th>AI Suggestion</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ORD-4401</code></td>
+          <td>SCRB-200ML</td>
+          <td>Clean match</td>
+          <td>Qty 3 = 3 ✓</td>
+          <td><span class="badge badge-auto">Rules</span></td>
+          <td><span class="conf conf-high">1.00</span></td>
+          <td>Auto-confirmed. No review needed.</td>
+          <td><span class="badge badge-auto">Confirmed</span></td>
+        </tr>
+        <tr>
+          <td><code>ORD-4402</code></td>
+          <td>GLOW-50ML</td>
+          <td>Partial shipment</td>
+          <td>Shopify: 2, WH: 1</td>
+          <td><span class="badge badge-ai">AI</span></td>
+          <td><span class="conf conf-med">0.72</span></td>
+          <td>Likely partial fulfilment — second unit may be on back-order. Suggest confirming remaining qty with warehouse before posting.</td>
+          <td><span class="badge badge-pending">Awaiting review</span></td>
+        </tr>
+        <tr>
+          <td><code>ORD-4403</code></td>
+          <td>TONER-100ML</td>
+          <td>Duplicate order ref</td>
+          <td>Same ref appears twice in Shopify</td>
+          <td><span class="badge badge-ai">AI</span></td>
+          <td><span class="conf conf-med">0.65</span></td>
+          <td>Duplicate detected in Shopify export. Warehouse shows one dispatch. Likely double-export error. Do not post until confirmed.</td>
+          <td><span class="badge badge-esc">Escalate</span></td>
+        </tr>
+        <tr>
+          <td><code>ORD-4404</code></td>
+          <td>MIST-75ML</td>
+          <td>Email-explained discrepancy</td>
+          <td>Dispatch date 3 days late</td>
+          <td><span class="badge badge-ai">AI</span></td>
+          <td><span class="conf conf-high">0.91</span></td>
+          <td>Warehouse email (17 Oct, 09:14) confirms courier hold at depot. Delay attributable to external logistics. Recommend accept for posting with note.</td>
+          <td><span class="badge badge-pending">Awaiting review</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:11px;color:var(--fg-3);margin-top:6px;">All AI suggestions are provisional. No record moves to Confirmed status without explicit human approval.</p>
+
+  <hr class="divider">
+
+  <!-- Scenario detail cards -->
+  <h2>Scenario Detail</h2>
+  <div class="scenario-cards">
+
+    <!-- Scenario 1 -->
+    <div class="scenario-card">
+      <div class="sc-header" onclick="toggleCard(this)">
+        <div class="sc-num">1</div>
+        <div class="sc-title">ORD-4401 — Clean Match</div>
+        <span class="badge badge-auto">Auto-confirmed</span>
+        <span class="sc-toggle">▾</span>
+      </div>
+      <div class="sc-body">
+        <div class="sc-grid">
+          <div>
+            <div class="sc-col-label">Raw Data</div>
+            <div class="sc-col-content">Shopify: <strong>Qty 3</strong>, SCRB-200ML<br>Warehouse: <strong>Qty 3</strong>, SCRB-200ML<br>Date match: both 13 Oct</div>
+          </div>
+          <div>
+            <div class="sc-col-label">AI Involvement</div>
+            <div class="sc-col-content">None. Deterministic rule matched on order ref, SKU and quantity. Auto-confirmed in under 10ms. <em>AI is not called for clean matches — cost and latency savings.</em></div>
+          </div>
+          <div>
+            <div class="sc-col-label">Outcome</div>
+            <div class="sc-col-content human-bg">Status: <strong>Confirmed</strong><br>Audit log entry created. Ready to include in NetSuite posting file on Finance approval.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scenario 2 -->
+    <div class="scenario-card">
+      <div class="sc-header" onclick="toggleCard(this)">
+        <div class="sc-num">2</div>
+        <div class="sc-title">ORD-4402 — Partial Shipment</div>
+        <span class="badge badge-pending">Awaiting review</span>
+        <span class="sc-toggle">▾</span>
+      </div>
+      <div class="sc-body">
+        <div class="sc-grid">
+          <div>
+            <div class="sc-col-label">Raw Data</div>
+            <div class="sc-col-content">Shopify: <strong>Qty 2</strong>, GLOW-50ML, £59.90<br>Warehouse: <strong>Qty 1</strong>, GLOW-50ML<br>Qty discrepancy: -1 unit</div>
+          </div>
+          <div>
+            <div class="sc-col-label">AI Prompt Input</div>
+            <div class="sc-col-content ai-bg">
+              <em>"Shopify shows qty=2 for ORD-4402 (GLOW-50ML). Warehouse dispatch shows qty=1. No warehouse email found for this order. Classify this exception and suggest an action."</em>
+            </div>
+          </div>
+          <div>
+            <div class="sc-col-label">AI Output</div>
+            <div class="sc-col-content ai-bg">
+              Type: <strong>Partial fulfilment</strong><br>
+              Confidence: 0.72<br>
+              Suggestion: Second unit may be on back-order or held. Recommend confirming remaining qty with warehouse before posting partial value.
+            </div>
+          </div>
+        </div>
+        <div class="follow-up-box">
+          <div class="fu-label">AI-drafted follow-up (for human to send or discard)</div>
+          <p>"Hi team, re ORD-4402 (GLOW-50ML): Shopify shows a qty of 2 but we have only 1 unit on the dispatch file. Could you confirm whether the second unit was held, back-ordered, or shipped separately? We need this before we can post to NetSuite. Thanks."</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scenario 3 -->
+    <div class="scenario-card">
+      <div class="sc-header" onclick="toggleCard(this)">
+        <div class="sc-num">3</div>
+        <div class="sc-title">ORD-4403 — Duplicate Entry</div>
+        <span class="badge badge-esc">Escalate</span>
+        <span class="sc-toggle">▾</span>
+      </div>
+      <div class="sc-body">
+        <div class="sc-grid">
+          <div>
+            <div class="sc-col-label">Raw Data</div>
+            <div class="sc-col-content">Shopify: <strong>ORD-4403 appears twice</strong>, identical rows<br>Warehouse: <strong>one dispatch</strong>, Qty 5<br>Potential double-posting risk: £99.75</div>
+          </div>
+          <div>
+            <div class="sc-col-label">AI Prompt Input</div>
+            <div class="sc-col-content ai-bg">
+              <em>"ORD-4403 (TONER-100ML, qty=5) appears twice in the Shopify export with identical values. The warehouse shows a single dispatch. Classify this exception."</em>
+            </div>
+          </div>
+          <div>
+            <div class="sc-col-label">AI Output</div>
+            <div class="sc-col-content warn-bg">
+              Type: <strong>Duplicate in source system</strong><br>
+              Confidence: 0.65<br>
+              Suggestion: Likely Shopify export error or double-trigger event. Warehouse data is consistent. Do not post either row until Shopify confirms one is authoritative.
+            </div>
+          </div>
+        </div>
+        <div class="follow-up-box">
+          <div class="fu-label">Escalation note (auto-generated for Ops manager)</div>
+          <p>"ORD-4403 appears twice in this week's Shopify export with identical line data. Warehouse shows one dispatch. This could indicate a duplicate fulfilment event in Shopify. Escalated for investigation before NetSuite posting. Reference: recon-run-2024-W42."</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scenario 4 -->
+    <div class="scenario-card">
+      <div class="sc-header" onclick="toggleCard(this)">
+        <div class="sc-num">4</div>
+        <div class="sc-title">ORD-4404 — Discrepancy Explained by Warehouse Email</div>
+        <span class="badge badge-pending">Awaiting review</span>
+        <span class="sc-toggle">▾</span>
+      </div>
+      <div class="sc-body">
+        <div class="sc-grid">
+          <div>
+            <div class="sc-col-label">Raw Data + Email</div>
+            <div class="sc-col-content">Shopify: dispatched 14 Oct<br>Warehouse: dispatched 17 Oct<br><strong>Email (17 Oct 09:14):</strong> "Apologies for the delay on order 4404 — our courier had a hold at the depot due to a vehicle breakdown. Dispatched this morning."</div>
+          </div>
+          <div>
+            <div class="sc-col-label">AI Prompt Input</div>
+            <div class="sc-col-content ai-bg">
+              <em>"ORD-4404 (MIST-75ML) shows a 3-day dispatch delay. The following warehouse email was received on 17 Oct: [email text above]. Classify the discrepancy and assess whether it is acceptable for posting."</em>
+            </div>
+          </div>
+          <div>
+            <div class="sc-col-label">AI Output</div>
+            <div class="sc-col-content human-bg">
+              Type: <strong>External logistics delay</strong><br>
+              Confidence: 0.91<br>
+              Suggestion: Delay is explained by courier failure, not a warehouse error. Email is contemporaneous with the event. Recommend: accept for posting with delay note attached to the audit record.
+            </div>
+          </div>
+        </div>
+        <div class="follow-up-box">
+          <div class="fu-label">Reviewer action (human must choose one)</div>
+          <p>Accept with note: "3-day delay confirmed by warehouse email — courier breakdown, 17 Oct." OR Reject and request further evidence. OR Escalate to Finance for value-at-risk assessment.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footnote">Worked Example · Pixi Fulfilment Reconciliation · Olayinka Bello · All data is synthetic. Source code and Python demo available in the same repository.</div>
+</div>
+
+<script>
+function toggleCard(header) {
+  const body = header.nextElementSibling;
+  const toggle = header.querySelector('.sc-toggle');
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  toggle.classList.toggle('open', !isOpen);
+}
+// Open first card by default
+document.querySelectorAll('.sc-header')[0].click();
+</script>
+</body>
+</html>
